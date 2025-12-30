@@ -10,7 +10,6 @@ import json
 st.set_page_config(layout="wide", page_title="치전원 자봉 관리")
 
 # [학생 명단 및 기존 점수 관리]
-# base_score: 기존 자봉 점수 (소수점 가능)
 STUDENTS = {
     1: {"name": "강동우", "base_score": 0},
     2: {"name": "강라원", "base_score": 0},
@@ -110,13 +109,13 @@ except Exception as e:
     st.error(f"구글 시트 연결 오류: {e}")
     st.stop()
 
-# --- 함수: 숫자 포맷팅 (정수는 정수처럼, 소수는 소수처럼) ---
+# --- 함수: 숫자 포맷팅 ---
 def smart_format(x):
     try:
         f = float(x)
         if f.is_integer():
-            return int(f) # 1.0 -> 1
-        return f # 0.5 -> 0.5
+            return int(f)
+        return f
     except:
         return x
 
@@ -125,7 +124,6 @@ def update_google_sheet_matrix(df_log):
     master_data = [{"번호": k, "이름": v['name']} for k, v in STUDENTS.items()]
     df_master = pd.DataFrame(master_data)
 
-    # 기존점수 처리
     if sheet_legacy:
         legacy_data = sheet_legacy.get_all_records()
         df_legacy = pd.DataFrame(legacy_data)
@@ -142,7 +140,6 @@ def update_google_sheet_matrix(df_log):
     
     df_master['기존점수'] = df_master['기존점수'].fillna(0)
 
-    # 로그 데이터 처리
     if not df_log.empty:
         df_log['점수'] = pd.to_numeric(df_log['점수'], errors='coerce').fillna(0)
         df_log['번호'] = pd.to_numeric(df_log['번호'], errors='coerce')
@@ -163,7 +160,6 @@ def update_google_sheet_matrix(df_log):
     date_cols = sorted([c for c in df_final.columns if c not in fixed_cols and c != '신규합계'])
     df_final = df_final[fixed_cols + date_cols]
 
-    # [수정] 모든 숫자 컬럼에 대해 스마트 포맷팅 적용
     for col in df_final.columns:
         if col != "이름":
             df_final[col] = df_final[col].apply(smart_format)
@@ -178,16 +174,12 @@ def log_history(action_type, row_data, audit_reason, new_data=None):
     timestamp = str(datetime.now())
     target_date = row_data['날짜']
     student_name = row_data['이름']
-    
-    # 점수 표시도 스마트 포맷팅
     old_score = smart_format(row_data['점수'])
     before_str = f"[{row_data['구분']}] {row_data['사유']} ({old_score}점)"
-    
     after_str = "-"
     if new_data:
         new_score_val = smart_format(new_data['점수'])
         after_str = f"[{new_data['구분']}] {new_data['사유']} ({new_score_val}점)"
-    
     sheet_history.append_row([timestamp, action_type, target_date, student_name, before_str, after_str, audit_reason])
 
 # --- 메인 화면 ---
@@ -222,16 +214,12 @@ with tab1:
 
         col3, col4 = st.columns(2)
         category = col3.radio("구분", ["자봉(+)", "상점(-)"], horizontal=True)
-        
-        # [수정] 0.0부터 시작하지 않고 1.0부터 시작, 0.1단위 조절, 소수점 입력 가능
         input_score = col4.number_input("점수 (숫자만 입력)", value=1.0, step=0.1, format="%.1f")
-        
         reason = st.text_input("사유 입력", placeholder="예: 지각, 청소")
         
         submitted = st.form_submit_button("저장 및 매트릭스 업데이트")
         
         if submitted:
-            # [수정] 0점 입력 방지
             if input_score == 0:
                 st.error("⚠️ 점수는 0점일 수 없습니다.")
             elif not target_ids:
@@ -286,42 +274,69 @@ with tab3:
                     for (reason_val, score_val), group in groups:
                         nums = sorted(group['번호'].astype(int).unique())
                         nums_str = ", ".join(map(str, nums))
-                        # [수정] 점수 표시 포맷팅
                         score_disp = f"+{smart_format(score_val)}" if score_val > 0 else f"{smart_format(score_val)}"
                         text += f"[{cat}] {reason_val} ({score_disp}점) : {nums_str}\n"
-                
                 text += "=" * 25 + "\n"
                 text += "✅ 본인 점수 확인 및 이의신청은\n개인톡 부탁드립니다."
-                
                 st.text_area("복사용 텍스트", text, height=300)
             else:
                 st.warning("해당 날짜의 기록이 없습니다.")
         else:
             st.warning("데이터가 없습니다.")
 
-# TAB 4: 일괄 수정 및 삭제
+# TAB 4: 일괄 수정 및 삭제 (검색 기능 강화됨)
 with tab4:
-    st.subheader("🛠️ 일괄 수정 및 삭제 (체크박스 선택)")
-    search_date = st.date_input("날짜 검색", datetime.now(), key='edit_date')
+    st.subheader("🛠️ 일괄 수정 및 삭제 (조건 검색)")
     
+    # 1. 필터 UI (날짜, 학생)
+    col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
+    
+    with col_s1:
+        use_all_dates = st.checkbox("전체 기간 조회")
+    
+    with col_s2:
+        search_date = st.date_input("날짜", datetime.now(), disabled=use_all_dates, key='edit_date')
+        
+    with col_s3:
+        search_student_str = st.selectbox("학생 선택", ["전체 학생"] + student_options, key='edit_student')
+    
+    # 2. 검색 실행
     if st.button("기록 불러오기"):
         data = sheet_log.get_all_records()
         df = pd.DataFrame(data)
+        
         if not df.empty:
             df['row_num'] = df.index + 2
             df['날짜'] = df['날짜'].astype(str)
-            filtered_df = df[df['날짜'] == str(search_date)].copy()
+            
+            # 필터링 로직
+            mask = pd.Series([True] * len(df)) # 일단 모두 선택
+            
+            # 날짜 필터 (체크 안 되어 있으면 날짜로 거름)
+            if not use_all_dates:
+                mask = mask & (df['날짜'] == str(search_date))
+                
+            # 학생 필터 (전체 학생이 아니면 이름으로 거름)
+            if search_student_str != "전체 학생":
+                # "1. 강동우" -> "강동우" 추출
+                target_name = search_student_str.split(". ")[1]
+                mask = mask & (df['이름'] == target_name)
+            
+            filtered_df = df[mask].copy()
             st.session_state['edit_df'] = filtered_df
         else:
             st.warning("데이터가 없습니다.")
             st.session_state['edit_df'] = pd.DataFrame()
 
+    # 3. 결과 표시 및 편집
     if 'edit_df' in st.session_state and not st.session_state['edit_df'].empty:
         edit_df = st.session_state['edit_df']
         if '선택' not in edit_df.columns:
             edit_df.insert(0, '선택', False)
         
-        st.markdown(f"**{search_date}** 날짜의 기록: 총 {len(edit_df)}건")
+        msg_date = "전체 기간" if use_all_dates else str(search_date)
+        msg_student = search_student_str
+        st.markdown(f"🔎 검색 결과 ({msg_date}, {msg_student}): **총 {len(edit_df)}건**")
         
         edited_df = st.data_editor(
             edit_df,
@@ -335,7 +350,7 @@ with tab4:
         selected_rows = edited_df[edited_df['선택'] == True]
         
         if not selected_rows.empty:
-            st.info(f"총 {len(selected_rows)}명의 학생이 선택되었습니다.")
+            st.info(f"총 {len(selected_rows)}개의 기록이 선택되었습니다.")
             st.markdown("---")
             
             tab_edit, tab_del = st.tabs(["✏️ 선택 항목 일괄 수정", "🗑️ 선택 항목 일괄 삭제"])
@@ -344,16 +359,12 @@ with tab4:
                 with st.form("batch_update_form"):
                     st.write("#### 1. 학생부에 기록될 내용 (변경 후)")
                     u_cat = st.radio("변경할 구분", ["자봉(+)", "상점(-)"], horizontal=True)
-                    
-                    # [수정] 수정 모드에서도 소수점 가능하게 변경
                     u_score = st.number_input("변경할 점수 (절대값)", value=1.0, step=0.1, format="%.1f")
-                    
                     u_reason = st.text_input("사유", placeholder="예: 지각")
                     st.write("#### 2. 관리자 기록용")
                     u_audit_reason = st.text_input("수정 이유", placeholder="예: 교수님 출결 정정 요청")
                     
                     if st.form_submit_button("일괄 수정 실행"):
-                        # [수정] 0점 방지
                         if u_score == 0:
                             st.error("⚠️ 점수는 0점일 수 없습니다.")
                         elif not u_audit_reason:

@@ -5,19 +5,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import os
 import json
-# 비밀번호 설정
-PASSWORD = "jabong123"
 
-# 비밀번호 입력창 (type='password'로 하면 입력 내용이 가려짐)
-password_input = st.text_input("비밀번호를 입력하세요", type="password")
+# # 비밀번호 설정
+# PASSWORD = "jabong123"
 
-if password_input == PASSWORD:
-    st.success("로그인 성공!")
-    # 여기에 메인 앱 코드를 작성하면 됩니다.
-    st.write("여기가 진짜 웹앱 화면입니다.")
-else:
-    st.warning("비밀번호를 입력해야 내용을 볼 수 있습니다.")
-    st.stop() # 비밀번호가 틀리면 여기서 코드 실행을 멈춤
+# # 비밀번호 입력창 (type='password'로 하면 입력 내용이 가려짐)
+# password_input = st.text_input("비밀번호를 입력하세요", type="password")
+
+# if password_input == PASSWORD:
+#     st.success("로그인 성공!")
+#     # 여기에 메인 앱 코드를 작성하면 됩니다.
+#     st.write("여기가 진짜 웹앱 화면입니다.")
+# else:
+#     st.warning("비밀번호를 입력해야 내용을 볼 수 있습니다.")
+#     st.stop() # 비밀번호가 틀리면 여기서 코드 실행을 멈춤
+
 # --- 1. 기본 설정 및 데이터 ---
 st.set_page_config(layout="wide", page_title="치전원 자봉 관리")
 

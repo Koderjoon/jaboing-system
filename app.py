@@ -112,22 +112,17 @@ except Exception as e:
 # --- [핵심] 안전하게 데이터 가져오는 함수 (에러 방지용) ---
 def get_safe_dataframe(worksheet):
     try:
-        # get_all_records 대신 get_all_values 사용 (빈 헤더 에러 방지)
         data = worksheet.get_all_values()
-        if len(data) < 2: # 헤더만 있거나 비어있으면 빈 DF 반환
+        if len(data) < 2:
             return pd.DataFrame()
         
         headers = data[0]
         rows = data[1:]
         
-        # 헤더가 비어있는 컬럼은 제외하고 DF 생성
         df = pd.DataFrame(rows, columns=headers)
-        
-        # 이름이 없는 컬럼 제거
         df = df.loc[:, df.columns != ''] 
         return df
     except Exception as e:
-        # st.error(f"데이터 로드 중 오류: {e}")
         return pd.DataFrame()
 
 # --- 함수: 숫자 포맷팅 ---
@@ -146,7 +141,6 @@ def update_google_sheet_matrix(df_log):
     df_master = pd.DataFrame(master_data)
 
     if sheet_legacy:
-        # [수정] 안전한 함수 사용
         df_legacy = get_safe_dataframe(sheet_legacy)
         
         if not df_legacy.empty:
@@ -261,7 +255,6 @@ with tab1:
                 
                 sheet_log.append_rows(new_rows)
                 try:
-                    # [수정] 안전한 로드 방식 사용
                     df_log = get_safe_dataframe(sheet_log)
                     update_google_sheet_matrix(df_log)
                     my_bar.empty()
@@ -285,11 +278,14 @@ with tab3:
     st.subheader("📢 상세 공지 문구")
     notice_date = st.date_input("공지 날짜", datetime.now(), key='notice_date')
     if st.button("공지 만들기"):
-        # [수정] 안전한 로드
         df = get_safe_dataframe(sheet_log)
         if not df.empty:
             df['날짜'] = df['날짜'].astype(str)
             df['번호'] = pd.to_numeric(df['번호'], errors='coerce')
+            
+            # [🔥 에러 수정 부분] 점수 컬럼을 반드시 숫자로 변환
+            df['점수'] = pd.to_numeric(df['점수'], errors='coerce').fillna(0)
+            
             target_df = df[df['날짜'] == str(notice_date)]
             if not target_df.empty:
                 text = f"📢 [{notice_date}] 자봉/상점 현황\n" + "=" * 25 + "\n"
@@ -298,6 +294,8 @@ with tab3:
                     for (reason_val, score_val), group in groups:
                         nums = sorted(group['번호'].astype(int).unique())
                         nums_str = ", ".join(map(str, nums))
+                        
+                        # score_val이 이제 확실히 숫자이므로 비교 가능
                         score_disp = f"+{smart_format(score_val)}" if score_val > 0 else f"{smart_format(score_val)}"
                         text += f"[{cat}] {reason_val} ({score_disp}점) : {nums_str}\n"
                 text += "=" * 25 + "\n"
@@ -323,7 +321,6 @@ with tab4:
         search_student_str = st.selectbox("학생 선택", ["전체 학생"] + student_options, key='edit_student')
     
     if st.button("기록 불러오기"):
-        # [수정] 안전한 로드
         df = get_safe_dataframe(sheet_log)
         
         if not df.empty:

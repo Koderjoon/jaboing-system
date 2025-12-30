@@ -109,6 +109,27 @@ except Exception as e:
     st.error(f"구글 시트 연결 오류: {e}")
     st.stop()
 
+# --- [핵심] 안전하게 데이터 가져오는 함수 (에러 방지용) ---
+def get_safe_dataframe(worksheet):
+    try:
+        # get_all_records 대신 get_all_values 사용 (빈 헤더 에러 방지)
+        data = worksheet.get_all_values()
+        if len(data) < 2: # 헤더만 있거나 비어있으면 빈 DF 반환
+            return pd.DataFrame()
+        
+        headers = data[0]
+        rows = data[1:]
+        
+        # 헤더가 비어있는 컬럼은 제외하고 DF 생성
+        df = pd.DataFrame(rows, columns=headers)
+        
+        # 이름이 없는 컬럼 제거
+        df = df.loc[:, df.columns != ''] 
+        return df
+    except Exception as e:
+        # st.error(f"데이터 로드 중 오류: {e}")
+        return pd.DataFrame()
+
 # --- 함수: 숫자 포맷팅 ---
 def smart_format(x):
     try:
@@ -125,8 +146,9 @@ def update_google_sheet_matrix(df_log):
     df_master = pd.DataFrame(master_data)
 
     if sheet_legacy:
-        legacy_data = sheet_legacy.get_all_records()
-        df_legacy = pd.DataFrame(legacy_data)
+        # [수정] 안전한 함수 사용
+        df_legacy = get_safe_dataframe(sheet_legacy)
+        
         if not df_legacy.empty:
             df_legacy['번호'] = pd.to_numeric(df_legacy['번호'], errors='coerce')
             score_col = '기존점수' if '기존점수' in df_legacy.columns else df_legacy.columns[2]
@@ -239,7 +261,9 @@ with tab1:
                 
                 sheet_log.append_rows(new_rows)
                 try:
-                    update_google_sheet_matrix(pd.DataFrame(sheet_log.get_all_records()))
+                    # [수정] 안전한 로드 방식 사용
+                    df_log = get_safe_dataframe(sheet_log)
+                    update_google_sheet_matrix(df_log)
                     my_bar.empty()
                     st.success(f"✅ {len(new_rows)}명 저장 완료! ({', '.join(valid_names)})")
                 except Exception as e:
@@ -261,8 +285,8 @@ with tab3:
     st.subheader("📢 상세 공지 문구")
     notice_date = st.date_input("공지 날짜", datetime.now(), key='notice_date')
     if st.button("공지 만들기"):
-        data = sheet_log.get_all_records()
-        df = pd.DataFrame(data)
+        # [수정] 안전한 로드
+        df = get_safe_dataframe(sheet_log)
         if not df.empty:
             df['날짜'] = df['날짜'].astype(str)
             df['번호'] = pd.to_numeric(df['번호'], errors='coerce')
@@ -284,11 +308,9 @@ with tab3:
         else:
             st.warning("데이터가 없습니다.")
 
-# TAB 4: 일괄 수정 및 삭제 (검색 기능 강화됨)
+# TAB 4: 일괄 수정 및 삭제
 with tab4:
     st.subheader("🛠️ 일괄 수정 및 삭제 (조건 검색)")
-    
-    # 1. 필터 UI (날짜, 학생)
     col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
     
     with col_s1:
@@ -300,25 +322,18 @@ with tab4:
     with col_s3:
         search_student_str = st.selectbox("학생 선택", ["전체 학생"] + student_options, key='edit_student')
     
-    # 2. 검색 실행
     if st.button("기록 불러오기"):
-        data = sheet_log.get_all_records()
-        df = pd.DataFrame(data)
+        # [수정] 안전한 로드
+        df = get_safe_dataframe(sheet_log)
         
         if not df.empty:
             df['row_num'] = df.index + 2
             df['날짜'] = df['날짜'].astype(str)
             
-            # 필터링 로직
-            mask = pd.Series([True] * len(df)) # 일단 모두 선택
-            
-            # 날짜 필터 (체크 안 되어 있으면 날짜로 거름)
+            mask = pd.Series([True] * len(df))
             if not use_all_dates:
                 mask = mask & (df['날짜'] == str(search_date))
-                
-            # 학생 필터 (전체 학생이 아니면 이름으로 거름)
             if search_student_str != "전체 학생":
-                # "1. 강동우" -> "강동우" 추출
                 target_name = search_student_str.split(". ")[1]
                 mask = mask & (df['이름'] == target_name)
             
@@ -328,7 +343,6 @@ with tab4:
             st.warning("데이터가 없습니다.")
             st.session_state['edit_df'] = pd.DataFrame()
 
-    # 3. 결과 표시 및 편집
     if 'edit_df' in st.session_state and not st.session_state['edit_df'].empty:
         edit_df = st.session_state['edit_df']
         if '선택' not in edit_df.columns:
@@ -380,7 +394,7 @@ with tab4:
                                 sheet_log.update_cell(row_num, 5, final_u_score)
                                 sheet_log.update_cell(row_num, 6, u_reason)
                                 progress.progress((idx + 1) / len(selected_rows))
-                            update_google_sheet_matrix(pd.DataFrame(sheet_log.get_all_records()))
+                            update_google_sheet_matrix(get_safe_dataframe(sheet_log))
                             st.success("수정 완료!")
                             del st.session_state['edit_df']
 
@@ -399,7 +413,7 @@ with tab4:
                             log_history("삭제", target_row_data, d_audit_reason)
                             sheet_log.delete_rows(r_num)
                             progress.progress((idx + 1) / len(rows_to_delete))
-                        update_google_sheet_matrix(pd.DataFrame(sheet_log.get_all_records()))
+                        update_google_sheet_matrix(get_safe_dataframe(sheet_log))
                         st.success("삭제 완료!")
                         del st.session_state['edit_df']
         else:
